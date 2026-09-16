@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RAYANE & MARIE DANSE — Gestion V6.3</title>
+<meta name="rmd-version" content="7.4"><title>RAYANE & MARIE DANSE — Gestion V7.4</title>
 <style>
 :root{--green:#2d5b45;--green2:#3f765c;--cream:#f6f2e8;--ink:#1d2721;--muted:#6e766f;--line:#dfe4df;--card:#fff;--danger:#a53d3d;--gold:#b18b45}
 *{box-sizing:border-box} body{margin:0;background:#f3f5f2;color:var(--ink);font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,sans-serif}
@@ -35,7 +35,7 @@ footer{padding:20px;text-align:center;color:var(--muted);font-size:12px}
 </head>
 <body>
 <header>
-  <div class="brand"><div class="logoBadge"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="37" fill="#f6f2e8"/><path d="M20 50c8-8 13-19 20-27 5 9 12 18 20 27" fill="none" stroke="#2d5b45" stroke-width="4" stroke-linecap="round"/><path d="M27 54c7-4 19-4 26 0" fill="none" stroke="#2d5b45" stroke-width="3" stroke-linecap="round"/><text x="40" y="47" text-anchor="middle" font-family="Georgia,serif" font-size="15" font-weight="700" fill="#2d5b45">R&amp;M</text></svg></div><div>RAYANE & MARIE DANSE <span style="opacity:.65">· V6.3</span></div></div>
+  <div class="brand"><div class="logoBadge"><svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="37" fill="#f6f2e8"/><path d="M20 50c8-8 13-19 20-27 5 9 12 18 20 27" fill="none" stroke="#2d5b45" stroke-width="4" stroke-linecap="round"/><path d="M27 54c7-4 19-4 26 0" fill="none" stroke="#2d5b45" stroke-width="3" stroke-linecap="round"/><text x="40" y="47" text-anchor="middle" font-family="Georgia,serif" font-size="15" font-weight="700" fill="#2d5b45">R&amp;M</text></svg></div><div>RAYANE & MARIE DANSE <span style="opacity:.65">· V7.4</span></div></div>
   <nav id="nav"></nav>
 </header>
 <div class="wrap">
@@ -304,10 +304,58 @@ function saveTariff(i){let t=state.tariffs[i];t.type=document.getElementById('tt
 function renderClients(){
  document.getElementById('clients').innerHTML=`<div class="row"><div><h1>Clients</h1><div class="sub">Carnet d’adresses réutilisable pour les factures.</div></div><button class="btn primary" onclick="newClient()">+ Ajouter</button></div><br><div class="card"><table><thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Adresse</th><th>SIRET</th><th></th></tr></thead><tbody>${state.clients.map((c,i)=>`<tr><td><b>${esc(c.name)}</b></td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.address)}</td><td>${esc(c.siret)}</td><td><button class="btn" onclick="editClient(${i})">Modifier</button></td></tr>`).join('')}</tbody></table>${!state.clients.length?'<div class="empty">Les clients seront aussi ajoutés automatiquement lors de la création d’une facture.</div>':''}</div>`;
 }
-function newClient(){const c={id:uid(),name:'',email:'',phone:'',address:'',siret:''};state.clients.push(c);renderClients();editClient(state.clients.length-1)}
-function editClient(i){let c=state.clients[i];modal(`<div class="row"><h2>Client</h2><button class="btn" onclick="closeModal()">Fermer</button></div><div class="field"><label>Nom / société</label><input id="cn" value="${esc(c.name)}"></div><div class="two"><div class="field"><label>Email</label><input id="ce" value="${esc(c.email)}"></div><div class="field"><label>Téléphone</label><input id="cp" value="${esc(c.phone)}"></div></div><div class="field"><label>Adresse</label><input id="ca" value="${esc(c.address)}"></div><div class="field"><label>SIRET</label><input id="cs" value="${esc(c.siret)}"></div><div class="actions"><button class="btn primary" onclick="saveClient(${i})">Enregistrer</button><button class="btn danger" onclick="rmdDeleteClient(${i})">Supprimer</button></div>`)}
-async function rmdDeleteClient(i){const c=state.clients[i];if(!c)return;if(!confirm('Supprimer ce client ?'))return;const btns=[...document.querySelectorAll('#modal .btn.danger')];btns.forEach(b=>b.disabled=true);try{if(window.rmdCloudDeleteRecord)await window.rmdCloudDeleteRecord('clients',c.id);state.clients.splice(i,1);localStorage.setItem(KEY,JSON.stringify(state));closeModal();renderClients();}catch(e){console.error(e);alert('La suppression n’a pas pu être enregistrée dans le cloud. Le client a été conservé.\n\n'+(e.message||e));btns.forEach(b=>b.disabled=false)}}
-function saveClient(i){let c=state.clients[i];c.name=document.getElementById('cn').value;c.email=document.getElementById('ce').value;c.phone=document.getElementById('cp').value;c.address=document.getElementById('ca').value;c.siret=document.getElementById('cs').value;save();closeModal();renderClients()}
+function clientForm(c,saveAction,deleteAction){
+ return `<div class="row"><h2>Client</h2><button class="btn" onclick="closeModal()">Fermer</button></div><div class="field"><label>Nom / société</label><input id="cn" value="${esc(c.name)}"></div><div class="two"><div class="field"><label>Email</label><input id="ce" value="${esc(c.email)}"></div><div class="field"><label>Téléphone</label><input id="cp" value="${esc(c.phone)}"></div></div><div class="field"><label>Adresse</label><input id="ca" value="${esc(c.address)}"></div><div class="field"><label>SIRET</label><input id="cs" value="${esc(c.siret)}"></div><div class="actions"><button class="btn primary" onclick="${saveAction}">Enregistrer</button>${deleteAction?`<button class="btn danger" onclick="${deleteAction}">Supprimer</button>`:''}</div>`
+}
+function readClientForm(c){
+ c.name=document.getElementById('cn').value.trim();
+ c.email=document.getElementById('ce').value.trim();
+ c.phone=document.getElementById('cp').value.trim();
+ c.address=document.getElementById('ca').value.trim();
+ c.siret=document.getElementById('cs').value.trim();
+ return c;
+}
+function newClient(){
+ const c={id:uid(),name:'',email:'',phone:'',address:'',siret:''};
+ modal(clientForm(c,'saveNewClient()',''));
+}
+function saveNewClient(){
+ const c=readClientForm({id:uid(),name:'',email:'',phone:'',address:'',siret:''});
+ if(!c.name){alert('Le nom / la société est obligatoire.');return;}
+ state.clients.push(c);
+ save();
+ closeModal();
+ renderClients();
+}
+function editClient(i){
+ let c=state.clients[i]; if(!c)return;
+ modal(clientForm(c,`saveClient(${i})`,`rmdDeleteClient(${i})`));
+}
+async function rmdDeleteClient(i){
+ const c=state.clients[i]; if(!c)return;
+ if(!confirm('Supprimer ce client ?'))return;
+ const btns=[...document.querySelectorAll('#modal .btn.danger')];
+ btns.forEach(b=>b.disabled=true);
+ try{
+   if(window.rmdCloudDeleteRecord) await window.rmdCloudDeleteRecord('clients',c.id);
+   state.clients.splice(i,1);
+   localStorage.setItem(KEY,JSON.stringify(state));
+   closeModal();
+   renderClients();
+ }catch(e){
+   console.error(e);
+   alert('La suppression n’a pas pu être enregistrée dans le cloud. Le client a été conservé.\n\n'+(e.message||e));
+   btns.forEach(b=>b.disabled=false);
+ }
+}
+function saveClient(i){
+ let c=state.clients[i]; if(!c)return;
+ readClientForm(c);
+ if(!c.name){alert('Le nom / la société est obligatoire.');return;}
+ save();
+ closeModal();
+ renderClients();
+}
 function renderSettings(){
  let s=state.settings;
  document.getElementById('settings').innerHTML=`<div><h1>Paramètres</h1><div class="sub">Coordonnées de l’association et outils de sauvegarde.</div></div><br><div class="grid g2"><div class="card"><h2>Association</h2><div class="field"><label>Nom</label><input id="sn" value="${esc(s.name)}"></div><div class="field"><label>Email</label><input id="se" value="${esc(s.email)}"></div><div class="field"><label>Adresse</label><input id="sa" value="${esc(s.address)}"></div><div class="two"><div class="field"><label>Téléphone</label><input id="sp" value="${esc(s.phone)}"></div><div class="field"><label>SIRET</label><input id="ss" value="${esc(s.siret)}"></div></div><div class="field"><label>IBAN</label><input id="si" value="${esc(s.iban)}"></div><div class="field"><label>Préfixe factures</label><input id="sx" value="${esc(s.prefix)}"></div><button class="btn primary" onclick="saveSettings()">Enregistrer</button></div>
