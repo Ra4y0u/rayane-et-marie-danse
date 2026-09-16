@@ -304,8 +304,9 @@ function saveTariff(i){let t=state.tariffs[i];t.type=document.getElementById('tt
 function renderClients(){
  document.getElementById('clients').innerHTML=`<div class="row"><div><h1>Clients</h1><div class="sub">Carnet d’adresses réutilisable pour les factures.</div></div><button class="btn primary" onclick="newClient()">+ Ajouter</button></div><br><div class="card"><table><thead><tr><th>Nom</th><th>Email</th><th>Téléphone</th><th>Adresse</th><th>SIRET</th><th></th></tr></thead><tbody>${state.clients.map((c,i)=>`<tr><td><b>${esc(c.name)}</b></td><td>${esc(c.email)}</td><td>${esc(c.phone)}</td><td>${esc(c.address)}</td><td>${esc(c.siret)}</td><td><button class="btn" onclick="editClient(${i})">Modifier</button></td></tr>`).join('')}</tbody></table>${!state.clients.length?'<div class="empty">Les clients seront aussi ajoutés automatiquement lors de la création d’une facture.</div>':''}</div>`;
 }
-function newClient(){state.clients.push({id:uid(),name:'',email:'',phone:'',address:'',siret:''});save();renderClients();editClient(state.clients.length-1)}
-function editClient(i){let c=state.clients[i];modal(`<div class="row"><h2>Client</h2><button class="btn" onclick="closeModal()">Fermer</button></div><div class="field"><label>Nom / société</label><input id="cn" value="${esc(c.name)}"></div><div class="two"><div class="field"><label>Email</label><input id="ce" value="${esc(c.email)}"></div><div class="field"><label>Téléphone</label><input id="cp" value="${esc(c.phone)}"></div></div><div class="field"><label>Adresse</label><input id="ca" value="${esc(c.address)}"></div><div class="field"><label>SIRET</label><input id="cs" value="${esc(c.siret)}"></div><div class="actions"><button class="btn primary" onclick="saveClient(${i})">Enregistrer</button><button class="btn danger" onclick="state.clients.splice(${i},1);save();closeModal();renderClients()">Supprimer</button></div>`)}
+function newClient(){const c={id:uid(),name:'',email:'',phone:'',address:'',siret:''};state.clients.push(c);renderClients();editClient(state.clients.length-1)}
+function editClient(i){let c=state.clients[i];modal(`<div class="row"><h2>Client</h2><button class="btn" onclick="closeModal()">Fermer</button></div><div class="field"><label>Nom / société</label><input id="cn" value="${esc(c.name)}"></div><div class="two"><div class="field"><label>Email</label><input id="ce" value="${esc(c.email)}"></div><div class="field"><label>Téléphone</label><input id="cp" value="${esc(c.phone)}"></div></div><div class="field"><label>Adresse</label><input id="ca" value="${esc(c.address)}"></div><div class="field"><label>SIRET</label><input id="cs" value="${esc(c.siret)}"></div><div class="actions"><button class="btn primary" onclick="saveClient(${i})">Enregistrer</button><button class="btn danger" onclick="rmdDeleteClient(${i})">Supprimer</button></div>`)}
+async function rmdDeleteClient(i){const c=state.clients[i];if(!c)return;if(!confirm('Supprimer ce client ?'))return;const btns=[...document.querySelectorAll('#modal .btn.danger')];btns.forEach(b=>b.disabled=true);try{if(window.rmdCloudDeleteRecord)await window.rmdCloudDeleteRecord('clients',c.id);state.clients.splice(i,1);localStorage.setItem(KEY,JSON.stringify(state));closeModal();renderClients();}catch(e){console.error(e);alert('La suppression n’a pas pu être enregistrée dans le cloud. Le client a été conservé.\n\n'+(e.message||e));btns.forEach(b=>b.disabled=false)}}
 function saveClient(i){let c=state.clients[i];c.name=document.getElementById('cn').value;c.email=document.getElementById('ce').value;c.phone=document.getElementById('cp').value;c.address=document.getElementById('ca').value;c.siret=document.getElementById('cs').value;save();closeModal();renderClients()}
 function renderSettings(){
  let s=state.settings;
@@ -626,7 +627,17 @@ nav();render(state.lastTab||'dashboard');
     }
     syncing=false;
   }
-  window.rmdCloudScheduleSync=function(){clearTimeout(syncTimer);syncTimer=setTimeout(sync,450)};
+  window.rmdCloudDeleteRecord=async function(table,id){
+    if(!sb||!currentUser||!orgId)throw new Error('Connexion Supabase indisponible.');
+    setDot('busy');
+    const {error}=await sb.from(table).delete().eq('id',id).eq('organization_id',orgId);
+    if(error){setDot('err');throw error}
+    // Update the authoritative snapshot immediately so the next sync cannot
+    // interpret the locally removed row as an unsynced deletion race.
+    if(lastSynced[table])lastSynced[table]=lastSynced[table].filter(x=>x.id!==id);
+    setDot('ok');
+};
+window.rmdCloudScheduleSync=function(){clearTimeout(syncTimer);syncTimer=setTimeout(sync,450)};
 
   // Live collaboration: Supabase Realtime notifies both browsers when shared
   // records change. We then pull the authoritative cloud state and rerender
