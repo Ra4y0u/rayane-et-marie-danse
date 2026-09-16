@@ -567,6 +567,24 @@ nav();render(state.lastTab||'dashboard');
 
   async function upsertAll(){
     normIds();
+
+    // Reconcile deletions: the previous version only upserted the current
+    // local records, so deleting a record locally did not delete it in the
+    // cloud. Compare against the last authoritative cloud snapshot and
+    // remove only records that were previously known but are now absent.
+    const del=async(t,ids)=>{
+      if(!ids.length)return;
+      const {error}=await sb.from(t).delete().in('id',ids);
+      if(error)throw error;
+    };
+    const currentIds=(k)=>(state[k]||[]).map(x=>x.id).filter(Boolean);
+    for(const k of ['clients','tariffs','events','timesheets','invoices','expenses']){
+      const before=(lastSynced[k]||[]).map(x=>x.id).filter(Boolean);
+      const now=new Set(currentIds(k));
+      const removed=before.filter(id=>!now.has(id));
+      await del(k,removed);
+    }
+
     // Upsert parent tables first.
     const up=async(t,rows)=>{if(!rows.length)return;const {error}=await sb.from(t).upsert(rows,{onConflict:'id'});if(error)throw error};
     await up('clients',(state.clients||[]).map(c=>({id:c.id,organization_id:orgId,name:c.name||'',email:c.email||'',phone:c.phone||'',address:c.address||'',siret:c.siret||''})));
