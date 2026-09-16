@@ -493,7 +493,7 @@ nav();render(state.lastTab||'dashboard');
 <script>
 (function(){
   const CFGKEY='rmd_supabase_config_v7';
-  let sb=null, orgId=null, currentUser=null, syncing=false, syncTimer=null, lastSynced={};
+  let sb=null, orgId=null, currentUser=null, syncing=false, syncTimer=null, cloudPullTimer=null, realtimeChannel=null, realtimeReady=false, lastSynced={};
   const tables=['clients','tariffs','events','timesheets','invoices','expenses','invoice_lines','monthly_closures','invoice_counters','app_settings'];
 
   function cfg(){try{return JSON.parse(localStorage.getItem(CFGKEY)||'null')}catch(e){return null}}
@@ -609,6 +609,50 @@ nav();render(state.lastTab||'dashboard');
     syncing=false;
   }
   window.rmdCloudScheduleSync=function(){clearTimeout(syncTimer);syncTimer=setTimeout(sync,450)};
+
+  // Live collaboration: Supabase Realtime notifies both browsers when shared
+  // records change. We then pull the authoritative cloud state and rerender
+  // the current screen. A small debounce prevents a burst of changes (for
+  // example invoice + invoice lines) from causing many simultaneous pulls.
+  function scheduleRealtimePull(){
+    if(!window.rmdCloudReady || !sb || !currentUser || syncing)return;
+    clearTimeout(cloudPullTimer);
+    cloudPullTimer=setTimeout(async()=>{
+      try{
+        setDot('busy');
+        await pull();
+        render(state.lastTab||'dashboard');
+        setDot('ok');
+      }catch(e){
+        console.error('RMD Realtime pull error:',e);
+        setDot('err');
+        const d=document.getElementById('rmd-sync-dot');
+        if(d)d.title='Erreur de synchronisation en temps réel : '+(e.message||e);
+      }
+    },700);
+  }
+
+  function setupRealtime(){
+    if(!sb || !orgId || realtimeChannel)return;
+    realtimeChannel=sb.channel('rmd-live-'+orgId)
+      .on('postgres_changes',{event:'*',schema:'public',table:'clients',filter:'organization_id=eq.'+orgId},scheduleRealtimePull)
+      .on('postgres_changes',{event:'*',schema:'public',table:'tariffs',filter:'organization_id=eq.'+orgId},scheduleRealtimePull)
+      .on('postgres_changes',{event:'*',schema:'public',table:'events',filter:'organization_id=eq.'+orgId},scheduleRealtimePull)
+      .on('postgres_changes',{event:'*',schema:'public',table:'timesheets',filter:'organization_id=eq.'+orgId},scheduleRealtimePull)
+      .on('postgres_changes',{event:'*',schema:'public',table:'invoices',filter:'organization_id=eq.'+orgId},scheduleRealtimePull)
+      .on('postgres_changes',{event:'*',schema:'public',table:'expenses',filter:'organization_id=eq.'+orgId},scheduleRealtimePull)
+      .on('postgres_changes',{event:'*',schema:'public',table:'invoice_lines'},scheduleRealtimePull)
+      .on('postgres_changes',{event:'*',schema:'public',table:'monthly_closures',filter:'organization_id=eq.'+orgId},scheduleRealtimePull)
+      .on('postgres_changes',{event:'*',schema:'public',table:'invoice_counters',filter:'organization_id=eq.'+orgId},scheduleRealtimePull)
+      .on('postgres_changes',{event:'*',schema:'public',table:'app_settings',filter:'organization_id=eq.'+orgId},scheduleRealtimePull)
+      .subscribe((status)=>{
+        realtimeReady=status==='SUBSCRIBED';
+        const d=document.getElementById('rmd-sync-dot');
+        if(d)d.title=realtimeReady?'Synchronisation automatique active':'Connexion temps réel en cours';
+        if(realtimeReady)setDot('ok');
+      });
+  }
+
   window.rmdCloudReady=false;
 
   window.rmdSaveConfig=function(){
@@ -645,6 +689,15 @@ nav();render(state.lastTab||'dashboard');
       document.getElementById('rmd-cloud-overlay').style.display='none';
       document.getElementById('rmd-topbar').style.display='flex';
       window.rmdCloudReady=true;
+      setupRealtime();
+      // Fallback refresh every 30 seconds in case a Realtime connection is
+      // temporarily unavailable. It also makes the app self-healing after a
+      // laptop wakes from sleep or a network change.
+      clearInterval(window.rmdFallbackRefresh);
+      window.rmdFallbackRefresh=setInterval(async()=>{
+        if(!window.rmdCloudReady || syncing || !document.visibilityState || document.visibilityState==='hidden')return;
+        try{await pull();render(state.lastTab||'dashboard');setDot('ok')}catch(e){console.error(e)}
+      },30000);
       render(state.lastTab||'dashboard');
       setDot('ok');
       setStatus('');
