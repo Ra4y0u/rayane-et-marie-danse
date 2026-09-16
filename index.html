@@ -111,7 +111,7 @@ function load(){try{let x=JSON.parse(localStorage.getItem(KEY));if(x){let s={...
 function save(){localStorage.setItem(KEY,JSON.stringify(state));if(window.rmdCloudReady&&window.rmdCloudScheduleSync)window.rmdCloudScheduleSync();}
 function eur(n){return (Number(n)||0).toLocaleString('fr-FR',{style:'currency',currency:'EUR'})}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
-function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7)}
+function uid(){return crypto.randomUUID()}
 function today(){return new Date().toISOString().slice(0,10)}
 function addDays(date,n){let d=new Date(date+'T12:00:00');d.setDate(d.getDate()+Number(n||0));return d.toISOString().slice(0,10)}
 function yearNow(){return new Date().getFullYear()}
@@ -501,15 +501,31 @@ nav();render(state.lastTab||'dashboard');
   function setDot(c){const d=document.getElementById('rmd-sync-dot');if(!d)return;d.className='';if(c==='busy')d.classList.add('busy');if(c==='err')d.classList.add('err')}
   function uuid(){return crypto.randomUUID()}
   function clone(x){return JSON.parse(JSON.stringify(x))}
+  function isUuid(v){return typeof v==='string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)}
   function normIds(){
+    // V6.5 used short local IDs while Supabase UUID columns require UUIDs.
+    // Convert legacy IDs and preserve all relationships between records.
     const maps={clients:new Map(),events:new Map(),timesheets:new Map(),invoices:new Map(),expenses:new Map(),tariffs:new Map()};
     ['clients','events','timesheets','invoices','expenses','tariffs'].forEach(k=>{
-      (state[k]||[]).forEach(x=>{if(!x.id){x.id=uuid()}});
+      (state[k]||[]).forEach(x=>{
+        const old=x.id;
+        if(!isUuid(old)){
+          const next=uuid();
+          if(old)maps[k].set(old,next);
+          x.id=next;
+        }
+      });
+    });
+    (state.timesheets||[]).forEach(t=>{
+      if(t.clientId && maps.clients.has(t.clientId)) t.clientId=maps.clients.get(t.clientId);
+      if(t.billedInvoiceId && maps.invoices.has(t.billedInvoiceId)) t.billedInvoiceId=maps.invoices.get(t.billedInvoiceId);
+      if(t.clientId && !state.clients.some(c=>c.id===t.clientId)) t.clientId='';
     });
     (state.invoices||[]).forEach(i=>{
-      (i.lines||[]).forEach(l=>{if(!l.id)l.id=uuid()});
+      if(i.clientId && maps.clients.has(i.clientId)) i.clientId=maps.clients.get(i.clientId);
+      if(Array.isArray(i.sourceTimesheetIds)) i.sourceTimesheetIds=i.sourceTimesheetIds.map(id=>maps.timesheets.get(id)||id);
+      (i.lines||[]).forEach(l=>{if(!isUuid(l.id))l.id=uuid()});
     });
-    (state.timesheets||[]).forEach(t=>{if(t.clientId && !state.clients.some(c=>c.id===t.clientId))t.clientId=''});
     return maps;
   }
   function org(){return orgId}
@@ -583,7 +599,13 @@ nav();render(state.lastTab||'dashboard');
   async function sync(){
     if(!sb||!currentUser||syncing)return;
     syncing=true;setDot('busy');
-    try{await upsertAll();setDot('ok')}catch(e){console.error(e);setDot('err');console.error(e)}
+    try{await upsertAll();setDot('ok')}
+    catch(e){
+      console.error('RMD Supabase sync error:',e);
+      setDot('err');
+      const d=document.getElementById('rmd-sync-dot');
+      if(d)d.title='Erreur de synchronisation : '+(e.message||e);
+    }
     syncing=false;
   }
   window.rmdCloudScheduleSync=function(){clearTimeout(syncTimer);syncTimer=setTimeout(sync,450)};
